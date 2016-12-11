@@ -1,0 +1,38 @@
+#!/usr/bin/python3
+
+import psycopg2
+
+
+def dump_bytes(b):
+    s = "%d bytes:" % len(b)
+    if len(b) > 20:
+        for i in range(0, 10):
+            bb = b[i]
+            s += " %02x" % bb
+        s += " ..."
+        for i in range(len(b)-10, len(b)):
+            bb = b[i]
+            s += " %02x" % bb
+    else:
+        for i in range(0, len(b)):
+            bb = b[i]
+            s += " %02x" % bb
+    return s
+
+
+dbname = "wds"
+
+db = db = psycopg2.connect("dbname='%s'" % (dbname, ))
+csr = db.cursor()
+csr.execute("drop table if exists test_bytea")
+csr.execute("create table test_bytea (id serial primary key, content bytea)")
+
+b = bytes([i for i in range(0, 256)])
+
+csr.execute("insert into test_bytea(content) values(%s)", (b,))
+csr.execute("select * from test_bytea")
+for r in csr.fetchall():
+    id = r[0]
+    content = bytes(r[1])
+    print(id, dump_bytes(content))
+db.commit()

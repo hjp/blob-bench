@@ -1,0 +1,74 @@
+#!/usr/bin/python3
+
+import psycopg2
+import random
+from   time     import time
+
+
+def dump_bytes(b):
+    s = "%d bytes:" % len(b)
+    if len(b) > 20:
+        for i in range(0, 10):
+            bb = b[i]
+            s += " %02x" % bb
+        s += " ..."
+        for i in range(len(b)-10, len(b)):
+            bb = b[i]
+            s += " %02x" % bb
+    else:
+        for i in range(0, len(b)):
+            bb = b[i]
+            s += " %02x" % bb
+    return s
+
+
+dbname = "wds"
+total_limit = int(100E9)
+max_size = int(1E8)
+
+# Prepare a large buffer with random bytes.
+# PostgreSQL by default compresses bytea columns, but most data stored
+# in a bytea column would probably be non-compressible so we use random
+# bytes to simulate that. We prepare the buffer in advance to avoid
+# calling random() billions of times (I don't think PostgreSQL can
+# compress/deduplicate across rows, so it doesn't matter that all blobs
+# are actually prefixes of one the largest blob.
+random_buffer = bytes([random.randint(0, 255) for i in range(0, max_size)])
+
+db = db = psycopg2.connect("dbname='%s'" % (dbname, ))
+csr = db.cursor()
+csr.execute("drop table if exists bench_bytea")
+csr.execute("create table bench_bytea (id serial primary key, content bytea)")
+db.commit()
+
+with open("bench_bytea.insert.out", mode="w") as insert_fh:
+    total = 0
+    while total < total_limit:
+        size = int(random.lognormvariate(7, 4))
+        if size > max_size:
+            continue
+
+        b = random_buffer[0:size]
+
+        t0 = time()
+        csr.execute("insert into bench_bytea(content) values(%s)", (b,))
+        db.commit()
+        t1 = time()
+        total += size
+        insert_fh.write("%d\t%g\n" % (size, t1 - t0))
+
+with open("bench_bytea.select.out", mode="w") as select_fh:
+    csr.execute("select max(id) from bench_bytea")
+    r = csr.fetchone()
+    max_id = r[0]
+    for i in range(0, 2 * max_id):
+        id = random.randint(1, max_id)
+        t0 = time()
+        csr.execute("select id, content from bench_bytea where id=%s", (id,))
+        r = csr.fetchone()
+        id1 = r[0]
+        assert id1 == id
+        content = bytes(r[1])
+        size = len(content)
+        t1 = time()
+        select_fh.write("%d\t%g\n" % (size, t1 - t0))
