@@ -1,8 +1,10 @@
 #!/usr/bin/python3
 
-import psycopg2
+import argparse
 import random
 from   time     import time
+
+import psycopg2
 
 
 def dump_bytes(b):
@@ -22,9 +24,13 @@ def dump_bytes(b):
     return s
 
 
-dbname = "wds"
-total_limit = int(100E9)
-max_size = int(1E8)
+ap = argparse.ArgumentParser()
+ap.add_argument("--dbname", default="")
+ap.add_argument("--total-limit", type=int, default=int(10E9))
+ap.add_argument("--max-size", type=int, default=int(1E8))
+ap.add_argument("--min-byte", type=int, default=0)
+ap.add_argument("--max-byte", type=int, default=255)
+args = ap.parse_args()
 
 # Prepare a large buffer with random bytes.
 # PostgreSQL by default compresses bytea columns, but most data stored
@@ -33,9 +39,11 @@ max_size = int(1E8)
 # calling random() billions of times (I don't think PostgreSQL can
 # compress/deduplicate across rows, so it doesn't matter that all blobs
 # are actually prefixes of one the largest blob.
-random_buffer = bytes([random.randint(0, 255) for i in range(0, max_size)])
+random_buffer = bytes([
+                    random.randint(args.min_byte, args.max_byte)
+                        for i in range(0, args.max_size)])
 
-db = db = psycopg2.connect("dbname='%s'" % (dbname, ))
+db = psycopg2.connect("dbname='%s'" % (args.dbname, ))
 csr = db.cursor()
 csr.execute("drop table if exists bench_bytea")
 csr.execute("create table bench_bytea (id serial primary key, content bytea)")
@@ -43,9 +51,9 @@ db.commit()
 
 with open("bench_bytea.insert.out", mode="w") as insert_fh:
     total = 0
-    while total < total_limit:
+    while total < args.total_limit:
         size = int(random.lognormvariate(7, 4))
-        if size > max_size:
+        if not (1 <= size <= args.max_size):
             continue
 
         b = random_buffer[0:size]
